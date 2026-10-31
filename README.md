@@ -2,6 +2,10 @@
 
 An end-to-end beginner-friendly data analytics project using six related TMDB CSV datasets: inspection, conservative cleaning, Pandas EDA, 27 SQLite analysis queries, charts, and a Streamlit dashboard.
 
+**By [Rakshatha B](https://github.com/rxksha07) · BCA Graduate | Aspiring Data Scientist**
+
+> Passionate about Python, SQL, Data Analytics, and Machine Learning. Continuously learning, building real-world projects, and transforming data into meaningful insights.
+
 > **Dataset scope:** these supplied files contain a few thousand movie records. They are a sample for analysis, not a complete or statistically representative census of the global movie industry. All numbers and insights are calculated from the files at run time.
 
 ## Project contents
@@ -18,6 +22,7 @@ Reel_Insights/
 │   ├── charts/              # Generated PNG/HTML charts
 │   └── reports/             # Generated EDA report
 ├── app.py                   # Streamlit interactive dashboard
+├── .streamlit/config.toml   # Accessible teal-and-slate theme
 ├── requirements.txt
 └── README.md
 ```
@@ -348,6 +353,8 @@ python -m streamlit run app.py
 ```
 
 Streamlit opens a local browser tab. Use the sidebar to navigate between the project overview, movie explorer, metrics, genre/cast/crew/keyword analysis, charts, data quality, and predefined SQL explorer. The app reports missing/empty data rather than inventing values.
+
+The dashboard uses a light teal-and-slate theme, a filter-aware overview with collection metrics, accessible chart descriptions, a compact dataset inventory, and a direct link to this source repository. The overview also explains that the displayed figures describe the supplied sample rather than the entire global movie industry.
 
 ## Troubleshooting
 

@@ -13,7 +13,12 @@ import streamlit as st
 from src.data_loader import DATASET_FILES, PROJECT_ROOT, PROCESSED_DATA_DIR, load_datasets
 from src.database import DATABASE_PATH
 
-st.set_page_config(page_title="Reel Insights | TMDB", page_icon="🎬", layout="wide")
+st.set_page_config(
+    page_title="Reel Insights | TMDB Analytics",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 PAGES = [
     "Home / Overview",
@@ -48,30 +53,155 @@ def _show_movie_table(frame: pd.DataFrame, columns: list[str] | None = None) -> 
 
 
 def page_home(data: dict[str, pd.DataFrame]) -> None:
-    st.title("🎬 Reel Insights")
-    st.subheader("An End-to-End Exploratory Data Analysis of the Global Movie Industry")
+    st.caption("TMDB DATA · EXPLORATORY ANALYSIS")
+    st.title("Reel Insights")
+    st.subheader("A data-driven look at the movies in this collection")
     st.write(
-        "Explore the supplied TMDB movie, cast, crew, genre, and keyword tables. "
-        "All metrics are calculated from the files you provide; this sample should not be treated as a complete census."
+        "Explore movie trends, genres, ratings, cast, crew, and keywords. "
+        "Use the sidebar filters to focus the analysis on a release period or language."
     )
-    overview = []
-    for name, frame in data.items():
-        overview.append({"Dataset": DATASET_FILES[name], "Rows": len(frame), "Columns": len(frame.columns)})
-    st.markdown("#### Dataset overview")
-    _show_movie_table(pd.DataFrame(overview))
-    total_movies = data.get("movies", pd.DataFrame())
-    if "movie_id" in total_movies:
-        st.metric("Unique movie records", f"{total_movies['movie_id'].nunique():,}")
-    st.markdown("#### Dataset relationships")
-    st.markdown(
-        "- `movies.movie_id` links movies to cast, crew, genres, and keywords.\n"
-        "- `movie_genres.genre_id` links to `genres.genre_id`.\n"
-        "- Cast/crew and genres are one-to-many or many-to-many relationships; joins can repeat movie rows."
-    )
-    st.markdown("#### Technologies")
-    st.write("Python · Pandas · NumPy · SQLite · SQL · Streamlit · Plotly · Matplotlib · Seaborn")
     if not data:
-        st.warning("No CSV files were found. Add the six original files to `data/raw/` and reload this page.")
+        st.warning(
+            "No dataset files were found. Add the six CSV files to `data/raw/`, "
+            "run the cleaning steps in the README, and reload this page."
+        )
+        return
+
+    movies = data.get("movies", pd.DataFrame())
+    cast = data.get("cast", pd.DataFrame())
+    crew = data.get("crew", pd.DataFrame())
+    genres = data.get("genres", pd.DataFrame())
+    genre_links = data.get("movie_genres", pd.DataFrame())
+    movie_count = (
+        int(movies["movie_id"].nunique())
+        if "movie_id" in movies
+        else len(movies)
+    )
+    ratings = (
+        pd.to_numeric(movies["vote_average"], errors="coerce").dropna()
+        if "vote_average" in movies
+        else pd.Series(dtype="float64")
+    )
+    active_genre_count = (
+        genre_links["genre_id"].nunique()
+        if "genre_id" in genre_links
+        else genres["genre_name"].nunique()
+        if "genre_name" in genres
+        else 0
+    )
+
+    st.markdown("#### Collection at a glance")
+    st.caption("Metrics reflect the current sidebar filters.")
+    metric_columns = st.columns(4)
+    metric_columns[0].metric(
+        "Movies",
+        f"{movie_count:,}",
+        help="Unique movie IDs when that column is available.",
+        border=True,
+    )
+    metric_columns[1].metric(
+        "Average rating",
+        f"{ratings.mean():.2f}" if not ratings.empty else "—",
+        help="Mean of available vote_average values.",
+        border=True,
+    )
+    metric_columns[2].metric(
+        "Genres",
+        f"{active_genre_count:,}",
+        help="Distinct genres linked to movies in the current selection.",
+        border=True,
+    )
+    metric_columns[3].metric(
+        "Cast and crew records",
+        f"{len(cast) + len(crew):,}",
+        help="Rows in the filtered cast and crew tables.",
+        border=True,
+    )
+
+    chart_columns = st.columns(2)
+    if (
+        {"movie_id", "genre_id"}.issubset(genre_links.columns)
+        and {"genre_id", "genre_name"}.issubset(genres.columns)
+    ):
+        genre_counts = (
+            genre_links.merge(genres, on="genre_id", how="left")
+            .groupby("genre_name")["movie_id"]
+            .nunique()
+            .sort_values()
+            .tail(10)
+            .rename("Movies")
+            .rename_axis("Genre")
+            .reset_index()
+        )
+        if not genre_counts.empty:
+            genre_figure = px.bar(
+                genre_counts,
+                x="Movies",
+                y="Genre",
+                orientation="h",
+                title="Most common genres",
+                labels={"Movies": "Unique movies"},
+            )
+            chart_columns[0].plotly_chart(
+                genre_figure,
+                width="stretch",
+                alt="Horizontal bar chart showing unique movies among the ten most common genres.",
+            )
+
+    if "release_date" in movies:
+        release_years = pd.to_datetime(movies["release_date"], errors="coerce").dt.year
+        releases = (
+            release_years.dropna()
+            .value_counts()
+            .sort_index()
+            .rename_axis("Release year")
+            .rename("Movies")
+            .reset_index()
+        )
+        if not releases.empty:
+            release_figure = px.line(
+                releases,
+                x="Release year",
+                y="Movies",
+                markers=True,
+                title="Movie records by release year",
+            )
+            chart_columns[1].plotly_chart(
+                release_figure,
+                width="stretch",
+                alt="Line chart showing the number of movie records for each release year.",
+            )
+
+    st.markdown("#### Explore the project")
+    st.write(
+        "Move between the movie explorer, analytics, genre and people analysis, "
+        "visualizations, data quality, and the 27-query SQL library."
+    )
+    st.link_button(
+        "View project source on GitHub",
+        "https://github.com/rxksha07/reel-insights-end-to-end-movie-data-analytics",
+        icon=":material/code:",
+    )
+    st.info(
+        "This is an analysis of the supplied TMDB sample, not a complete census "
+        "of movies produced worldwide. Results depend on the files you provide."
+    )
+
+    overview = [
+        {"Dataset": DATASET_FILES[name], "Rows": len(frame), "Columns": len(frame.columns)}
+        for name, frame in data.items()
+    ]
+    with st.expander("Dataset inventory and table relationships"):
+        st.dataframe(pd.DataFrame(overview), width="stretch", hide_index=True)
+        st.markdown(
+            "- `movies.movie_id` links movies to cast, crew, genres, and keywords.\n"
+            "- `movie_genres.genre_id` links to `genres.genre_id`.\n"
+            "- Related tables can contain several rows per movie; use distinct movie counts to avoid double-counting."
+        )
+        st.caption(
+            "Built with Python, Pandas, NumPy, SQLite, SQL, Streamlit, "
+            "Plotly, Matplotlib, and Seaborn."
+        )
 
 
 def page_explorer(data: dict[str, pd.DataFrame]) -> None:
@@ -163,7 +293,11 @@ def page_analytics(data: dict[str, pd.DataFrame]) -> None:
     if "release_date" in movies:
         years = pd.to_datetime(movies["release_date"], errors="coerce").dt.year
         counts = years.value_counts().sort_index().rename_axis("Release year").rename("Movies").reset_index()
-        st.plotly_chart(px.line(counts, x="Release year", y="Movies", markers=True, title="Movie releases by year"), width="stretch")
+        st.plotly_chart(
+            px.line(counts, x="Release year", y="Movies", markers=True, title="Movie releases by year"),
+            width="stretch",
+            alt="Line chart showing the number of movie records by release year.",
+        )
     if {"budget", "revenue"}.issubset(movies.columns):
         chart_data = movies.copy()
         chart_data[["budget", "revenue"]] = chart_data[["budget", "revenue"]].apply(pd.to_numeric, errors="coerce")
@@ -173,6 +307,7 @@ def page_analytics(data: dict[str, pd.DataFrame]) -> None:
                 px.scatter(chart_data, x="budget", y="revenue", hover_name="title" if "title" in chart_data else None,
                            log_x=True, log_y=True, title="Budget vs. revenue (positive values)"),
                 width="stretch",
+                alt="Scatter plot comparing positive movie budgets and revenues on logarithmic axes.",
             )
 
 
@@ -189,14 +324,22 @@ def page_genres(data: dict[str, pd.DataFrame]) -> None:
     joined = links.merge(genres, on="genre_id", how="left")
     counts = joined.groupby("genre_name", dropna=False)["movie_id"].nunique().sort_values(ascending=False)
     counts_frame = counts.rename("Unique movies").reset_index()
-    st.plotly_chart(px.bar(counts_frame, x="genre_name", y="Unique movies", title="Unique movie count by genre"), width="stretch")
+    st.plotly_chart(
+        px.bar(counts_frame, x="genre_name", y="Unique movies", title="Unique movie count by genre"),
+        width="stretch",
+        alt="Bar chart comparing unique movie counts across genres.",
+    )
     if {"movie_id", "vote_average"}.issubset(movies.columns):
         rated = joined.merge(movies[["movie_id", "vote_average"]], on="movie_id", how="left")
         rated["vote_average"] = pd.to_numeric(rated["vote_average"], errors="coerce")
         averages = rated.groupby("genre_name")["vote_average"].agg(["mean", "count"]).reset_index()
         averages = averages[averages["count"] >= 3].sort_values("mean", ascending=False)
         if not averages.empty:
-            st.plotly_chart(px.bar(averages, x="genre_name", y="mean", title="Average rating by genre (3+ rated movies)"), width="stretch")
+            st.plotly_chart(
+                px.bar(averages, x="genre_name", y="mean", title="Average rating by genre (3+ rated movies)"),
+                width="stretch",
+                alt="Bar chart comparing mean movie ratings by genre for genres with at least three rated movies.",
+            )
     st.dataframe(counts_frame, width="stretch", hide_index=True)
 
 
@@ -231,7 +374,11 @@ def page_keywords(data: dict[str, pd.DataFrame]) -> None:
         _available_message("Keyword analysis")
         return
     counts = keywords.groupby("keyword_name")["movie_id"].nunique().sort_values(ascending=False).head(30)
-    st.plotly_chart(px.bar(counts.sort_values().reset_index(), x="keyword_name", y="movie_id", title="Most common keywords"), width="stretch")
+    st.plotly_chart(
+        px.bar(counts.sort_values().reset_index(), x="keyword_name", y="movie_id", title="Most common keywords"),
+        width="stretch",
+        alt="Bar chart of the most frequent movie keywords.",
+    )
     st.dataframe(counts.rename("Movies").rename_axis("Keyword").reset_index(), width="stretch", hide_index=True)
     search = st.text_input("Search keyword")
     if search:
@@ -247,21 +394,37 @@ def page_visuals(data: dict[str, pd.DataFrame]) -> None:
     if "vote_average" in movies:
         values = pd.to_numeric(movies["vote_average"], errors="coerce").dropna()
         if not values.empty:
-            st.plotly_chart(px.histogram(values, nbins=25, title="Rating distribution", labels={"value": "Average vote", "count": "Movies"}), width="stretch")
+            st.plotly_chart(
+                px.histogram(values, nbins=25, title="Rating distribution", labels={"value": "Average vote", "count": "Movies"}),
+                width="stretch",
+                alt="Histogram showing how movie average ratings are distributed.",
+            )
     if "runtime" in movies:
         runtime = pd.to_numeric(movies["runtime"], errors="coerce").dropna()
         runtime = runtime[runtime > 0]
         if not runtime.empty:
-            st.plotly_chart(px.histogram(runtime, nbins=30, title="Runtime distribution", labels={"value": "Runtime (minutes)", "count": "Movies"}), width="stretch")
+            st.plotly_chart(
+                px.histogram(runtime, nbins=30, title="Runtime distribution", labels={"value": "Runtime (minutes)", "count": "Movies"}),
+                width="stretch",
+                alt="Histogram showing how movie runtimes in minutes are distributed.",
+            )
     if "release_date" in movies:
         years = pd.to_datetime(movies["release_date"], errors="coerce").dt.year.dropna()
         if not years.empty:
             trend = years.value_counts().sort_index().rename_axis("Year").rename("Movies").reset_index()
-            st.plotly_chart(px.line(trend, x="Year", y="Movies", markers=True, title="Releases by year"), width="stretch")
+            st.plotly_chart(
+                px.line(trend, x="Year", y="Movies", markers=True, title="Releases by year"),
+                width="stretch",
+                alt="Line chart showing movie release counts by year.",
+            )
     numeric = movies.select_dtypes(include="number")
     if len(numeric.columns) >= 2:
         corr = numeric.corr(min_periods=3)
-        st.plotly_chart(px.imshow(corr, text_auto=".2f", title="Numeric correlation matrix", color_continuous_scale="RdBu_r", zmin=-1, zmax=1), width="stretch")
+        st.plotly_chart(
+            px.imshow(corr, text_auto=".2f", title="Numeric correlation matrix", color_continuous_scale="RdBu_r", zmin=-1, zmax=1),
+            width="stretch",
+            alt="Heatmap showing pairwise correlations between numeric movie fields.",
+        )
     if not any(column in movies for column in ("vote_average", "runtime", "release_date")):
         _available_message("Movie visualizations")
 
@@ -345,7 +508,9 @@ def main() -> None:
         st.stop()
     with st.sidebar:
         st.title("Reel Insights")
-        page = st.radio("Navigate", PAGES)
+        st.caption("TMDB movie analytics")
+        page = st.radio("Explore", PAGES)
+        st.divider()
         st.caption("Global filters")
         filtered_data = dict(data)
         movies = data.get("movies", pd.DataFrame())
